@@ -34,14 +34,14 @@ class ContextChatEngine(BaseChatEngine):
     """
 
     def __init__(
-        self,
-        retriever: BaseRetriever,
-        llm: LLM,
-        memory: BaseMemory,
-        prefix_messages: List[ChatMessage],
-        node_postprocessors: Optional[List[BaseNodePostprocessor]] = None,
-        context_template: Optional[str] = None,
-        callback_manager: Optional[CallbackManager] = None,
+            self,
+            retriever: BaseRetriever,
+            llm: LLM,
+            memory: BaseMemory,
+            prefix_messages: List[ChatMessage],
+            node_postprocessors: Optional[List[BaseNodePostprocessor]] = None,
+            context_template: Optional[str] = None,
+            callback_manager: Optional[CallbackManager] = None,
     ) -> None:
         self._retriever = retriever
         self._llm = llm
@@ -56,17 +56,17 @@ class ContextChatEngine(BaseChatEngine):
 
     @classmethod
     def from_defaults(
-        cls,
-        retriever: BaseRetriever,
-        service_context: Optional[ServiceContext] = None,
-        chat_history: Optional[List[ChatMessage]] = None,
-        memory: Optional[BaseMemory] = None,
-        memory_cls: Type[BaseMemory] = ChatMemoryBuffer,
-        system_prompt: Optional[str] = None,
-        prefix_messages: Optional[List[ChatMessage]] = None,
-        node_postprocessors: Optional[List[BaseNodePostprocessor]] = None,
-        context_template: Optional[str] = None,
-        **kwargs: Any,
+            cls,
+            retriever: BaseRetriever,
+            service_context: Optional[ServiceContext] = None,
+            chat_history: Optional[List[ChatMessage]] = None,
+            memory: Optional[BaseMemory] = None,
+            memory_cls: Type[BaseMemory] = ChatMemoryBuffer,
+            system_prompt: Optional[str] = None,
+            prefix_messages: Optional[List[ChatMessage]] = None,
+            node_postprocessors: Optional[List[BaseNodePostprocessor]] = None,
+            context_template: Optional[str] = None,
+            **kwargs: Any,
     ) -> "ContextChatEngine":
         """Initialize a ContextChatEngine from default parameters."""
         service_context = service_context or ServiceContext.from_defaults()
@@ -99,9 +99,37 @@ class ContextChatEngine(BaseChatEngine):
             context_template=context_template,
         )
 
+    def _generate_standalone_followup(self, message: str) -> str:
+        msg = self.chat_history[len(self.chat_history) - 3]
+        template = (
+            "Combine the chat history and follow up question into "
+            f"a standalone question. Chat History: {msg.content}"
+            f"Follow up question: {message}"
+        )
+
+        standalone_message = ChatMessage(content=template, role="user")
+
+        self._memory.put(standalone_message)
+
+        chat_response = self._llm.chat([standalone_message])
+
+        print(f'followup question translated to: {chat_response.message.content}')
+
+        self._memory.put(chat_response.message)
+
+        return chat_response.message.content
+
+
+
     def _generate_context(self, message: str) -> Tuple[str, List[NodeWithScore]]:
         """Generate context information from a message."""
-        nodes = self._retriever.retrieve(message)
+        # first form a standalone question from the history and followup:
+        if len(self.chat_history) > 1:
+            standalone_message = self._generate_standalone_followup(message)
+        else:
+            standalone_message = message
+
+        nodes = self._retriever.retrieve(standalone_message)
         for postprocessor in self._node_postprocessors:
             nodes = postprocessor.postprocess_nodes(
                 nodes, query_bundle=QueryBundle(message)
